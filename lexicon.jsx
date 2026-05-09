@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect } from "react";
 
 
+
 /* ════════════════════════════════════════════════════════
    SHARED CONSTANTS
 ════════════════════════════════════════════════════════ */
@@ -20,10 +21,57 @@ function chips(text, color) {
 }
 
 /* ════════════════════════════════════════════════════════
-   STORAGE
+   STORAGE — localStorage + /src/backup/ GitHub fallback
+   
+   Estratégia de carregamento (3 camadas):
+   1. localStorage — dados locais do navegador atual
+   2. /src/backup/words.json e /src/backup/phrases.json — arquivos no repo
+   3. Objeto vazio — sem dados ainda
+   
+   O localStorage SEMPRE tem prioridade sobre os arquivos JSON.
+   Quando o fallback é usado, os dados são salvos no localStorage
+   para que edições futuras persistam normalmente.
 ════════════════════════════════════════════════════════ */
-async function sGet(key)       { try { const v = localStorage.getItem(key); return v ? JSON.parse(v) : null; } catch { return null; } }
-async function sSet(key, data) { try { localStorage.setItem(key, JSON.stringify(data)); } catch (e) { console.error(e); } }
+
+/* Caminhos dos arquivos JSON no repositório */
+const BACKUP_WORDS_URL   = "/src/backup/words.json";
+const BACKUP_PHRASES_URL = "/src/backup/phrases.json";
+
+async function sGet(key) {
+  try { const v = localStorage.getItem(key); if (v) return JSON.parse(v); } catch { }
+  return null;
+}
+async function sSet(key, data) {
+  try { localStorage.setItem(key, JSON.stringify(data)); } catch (e) { console.error(e); }
+}
+
+/* Carrega dados de uma chave, com fallback para arquivo JSON remoto */
+async function sGetWithFallback(key, fallbackUrl) {
+  // 1. Tentar localStorage primeiro
+  try {
+    const v = localStorage.getItem(key);
+    if (v) return JSON.parse(v);
+  } catch { }
+
+  // 2. Tentar buscar o arquivo JSON do repositório
+  try {
+    const res = await fetch(fallbackUrl, { cache: "no-store" });
+    if (res.ok) {
+      const json = await res.json();
+      // O arquivo pode ser { data: {...} } ou diretamente { A:[...], B:[...] }
+      const data = json.data || json;
+      // Salvar no localStorage para próximas visitas neste navegador
+      localStorage.setItem(key, JSON.stringify(data));
+      console.log(`[English VIBE] Carregado de ${fallbackUrl} e salvo no localStorage`);
+      return data;
+    }
+  } catch (e) {
+    console.warn(`[English VIBE] Fallback ${fallbackUrl} não disponível:`, e.message);
+  }
+
+  // 3. Sem dados — app começa vazio
+  return null;
+}
 
 /* ════════════════════════════════════════════════════════
    SHARED BADGES
@@ -916,7 +964,7 @@ function WordsModule({ saveStatus }) {
   const [dedupInfo,     setDedupInfo]     = useState(null); // { count, items, show }
 
   useEffect(()=>{
-    sGet(SK_WORDS).then(d=>{
+    sGetWithFallback(SK_WORDS, BACKUP_WORDS_URL).then(d=>{
       if (d) {
         const clean = deduplicateData(d, x => x.term || "");
         // Only include items that are still incomplete (pending or missing translation)
@@ -2056,7 +2104,7 @@ function PhrasesModule() {
   const [dedupInfo, setDedupInfo] = useState(null); // { count, items, show }
 
   useEffect(()=>{
-    sGet(SK_PHRASES).then(d=>{
+    sGetWithFallback(SK_PHRASES, BACKUP_PHRASES_URL).then(d=>{
       if (d) {
         const clean = deduplicateData(d, x => x.phrase || "");
         // Only include items still incomplete (pending or missing translation)
@@ -2497,3 +2545,4 @@ const S = {
   cancelBtn:   { background:"#ffffff0a", border:"1px solid #ffffff14", color:"#94a3b8", borderRadius:9, padding:"9px 17px", cursor:"pointer", fontSize:13, fontWeight:600 },
   saveBtn:     { background:"linear-gradient(135deg,#1d4ed8,#7c3aed)", color:"#fff", border:"none", borderRadius:9, padding:"9px 20px", cursor:"pointer", fontSize:14, fontWeight:700, boxShadow:"0 4px 14px #1d4ed844" },
 };
+
